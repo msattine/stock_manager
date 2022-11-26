@@ -3,6 +3,8 @@ from PIL import Image, ImageTk # pip install pillow
 from tkinter import ttk, messagebox
 import sqlite3
 import random
+import pandas as pd
+from datetime import datetime
 
 bg_color = "#3d6466"
 
@@ -159,6 +161,9 @@ def load_main_frame():
 	# button widget for Available stock
 	tk.Button(main_frame, text="Available Stock", font=("TkHeadingFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
 		activeforeground="black", command=lambda:load_avail_stock_frame()).pack(pady=20)
+	# button widget for creating excel sheet
+	tk.Button(main_frame, text="Write to Excel", font=("TkHeadingFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		activeforeground="black", command=lambda:write_to_excel_file()).pack(pady=20)
 
 def inventory_add():
 	item = inv_item.get()
@@ -184,6 +189,11 @@ def inventory_delete():
 	inv_item.err_msg["text"] = ""
 	if id in ids:
 		cursor.execute("delete from inventory where id = ?", (id,))
+		conn.commit()
+		cursor.execute("ALTER TABLE inventory RENAME TO temptable")
+		cursor.execute(""" CREATE TABLE inventory(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, units text NOT NULL, dimensions text NOT NULL, price text);""");
+		cursor.execute("""INSERT INTO inventory (item_name, units, dimensions, price) SELECT item_name, units, dimensions, price FROM temptable ORDER BY id;""") 
+		cursor.execute("DROP TABLE temptable;")
 		conn.commit()
 		inv_item.err_msg["text"] = "Success: Deleted the entry"
 	else:
@@ -220,6 +230,11 @@ def purchase_delete():
 	if id in ids:
 		cursor.execute("delete from purchase where id = ?", (id,))
 		conn.commit()
+		cursor.execute("ALTER TABLE purchase RENAME TO temptable")
+		cursor.execute(""" CREATE TABLE purchase(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL, company text NOT NULL) """);
+		cursor.execute("""INSERT INTO purchase (item_name, quantity, date, company) SELECT item_name, quantity, date, company FROM temptable ORDER BY id;""") 
+		cursor.execute("DROP TABLE temptable;")
+		conn.commit()
 		pur_item.err_msg["text"] = "Success: Deleted the entry"
 	else:
 		pur_item.err_msg["text"] = "Entry doesnt exist"
@@ -253,6 +268,11 @@ def sale_delete():
 	sl_item.err_msg["text"] = ""
 	if id in ids:
 		cursor.execute("delete from sale where id = ?", (id,))
+		conn.commit()
+		cursor.execute("ALTER TABLE sale RENAME TO temptable")
+		cursor.execute(""" CREATE TABLE sale(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL, site text NOT NULL) """);
+		cursor.execute("""INSERT INTO sale (item_name, quantity, date, site) SELECT item_name, quantity, date, site FROM temptable ORDER BY id;""") 
+		cursor.execute("DROP TABLE temptable;")
 		conn.commit()
 		sl_item.err_msg["text"] = "Success: Deleted the entry"
 	else:
@@ -288,6 +308,11 @@ def return_delete():
 	if id in ids:
 		cursor.execute("delete from return where id = ?", (id,))
 		conn.commit()
+		cursor.execute("ALTER TABLE return RENAME TO temptable")
+		cursor.execute(""" CREATE TABLE return(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL, site text NOT NULL) """);
+		cursor.execute("""INSERT INTO return (item_name, quantity, date, site) SELECT item_name, quantity, date, site FROM temptable ORDER BY id;""") 
+		cursor.execute("DROP TABLE temptable;")
+		conn.commit()
 		ret_item.err_msg["text"] = "Success: Deleted the entry"
 	else:
 		ret_item.err_msg["text"] = "Entry doesnt exist"
@@ -322,6 +347,11 @@ def stock_delete():
 	if id in ids:
 		cursor.execute("delete from stock where id = ?", (id,))
 		conn.commit()
+		cursor.execute("ALTER TABLE stock RENAME TO temptable")
+		cursor.execute(""" CREATE TABLE stock(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL) """);
+		cursor.execute("""INSERT INTO stock (item_name, quantity, date) SELECT item_name, quantity, date FROM temptable ORDER BY id;""") 
+		cursor.execute("DROP TABLE temptable;")
+		conn.commit()
 		st_item.err_msg["text"] = "Success: Deleted the entry"
 	else:
 		st_item.err_msg["text"] = "Entry doesnt exist"
@@ -335,6 +365,7 @@ def load_view_frame():
 	clear_widgets(sale_frame)
 	clear_widgets(return_frame)
 	clear_widgets(stock_frame)
+	clear_widgets(avail_stock_frame)
 	view_frame.tkraise()
 
 	# create a frame widget
@@ -359,6 +390,9 @@ def load_view_frame():
 	elif cur_view == "Stock":
 		tk.Button(view_frame, text="Back", font=("TkMenuFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
 		  activeforeground="black", command=lambda:load_stock_frame()).pack(pady=20)
+	elif cur_view == "Available_stock":
+		tk.Button(view_frame, text="Back", font=("TkMenuFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		  activeforeground="black", command=lambda:load_avail_stock_frame()).pack(pady=20)
 
 	# inventory_frame widgets
 	if cur_view == "Inventory":
@@ -371,6 +405,8 @@ def load_view_frame():
 		tk.Label(view_frame, text="Return List", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 	elif cur_view == "Stock":
 		tk.Label(view_frame, text="Stock List", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
+	elif cur_view == "Available_stock":
+		tk.Label(view_frame, text="Available Stock", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 
 	scrolly = tk.Scrollbar(view_frame,orient=tk.VERTICAL)
 	scrollx = tk.Scrollbar(view_frame,orient=tk.HORIZONTAL)
@@ -388,6 +424,9 @@ def load_view_frame():
 				         xscrollcommand=scrollx.set,yscrollcommand=scrolly.set)
 	elif cur_view == "Stock":
 		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name","quantity","date"),
+				         xscrollcommand=scrollx.set,yscrollcommand=scrolly.set)
+	elif cur_view == "Available_stock":
+		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name","quantity", "price"),
 				         xscrollcommand=scrollx.set,yscrollcommand=scrolly.set)
 	
 	scrollx.pack(side=tk.BOTTOM,fill=tk.X)
@@ -433,6 +472,11 @@ def load_view_frame():
 		CourseTable.heading("date",text="Date")
 		CourseTable.column("quantity",width=100)
 		CourseTable.column("date",width=100)
+	elif cur_view == "Available_stock":
+		CourseTable.heading("quantity",text="Quantity")
+		CourseTable.heading("price",text="Price")
+		CourseTable.column("quantity",width=100)
+		CourseTable.column("price",width=100)
 	CourseTable.pack(fill=tk.BOTH,expand=1)
 
 	if cur_view == "Inventory":
@@ -445,7 +489,11 @@ def load_view_frame():
 		cursor.execute("select * from return")
 	elif cur_view == "Stock":
 		cursor.execute("select * from stock")
-	rows=cursor.fetchall()
+
+	if cur_view == "Available_stock":
+		rows = compute_available_stock()
+	else:
+		rows=cursor.fetchall()
 	CourseTable.delete(*CourseTable.get_children())
 	for row in rows:
 		CourseTable.insert("", tk.END, values=row)
@@ -667,7 +715,10 @@ def load_stock_frame():
 		  activeforeground="black", command=lambda:load_main_frame()).place(x=label_x_margin + button_gap, y= label_y_margin+7*label_y_gap)
 
 def load_avail_stock_frame():
+	global cur_view
+	cur_view = "Available_stock"
 	clear_widgets(main_frame)
+	clear_widgets(view_frame)
 	avail_stock_frame.tkraise()
 
 	# create a frame widget
@@ -684,17 +735,114 @@ def load_avail_stock_frame():
 		 font=("TkHeadingFont", 20)
 	).pack(pady=25)
 
+	# Show button widget
+	tk.Button(avail_stock_frame, text="Show", font=("TkMenuFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		  activeforeground="black", command=lambda:load_view_frame()).place(x=label_x_margin + 2*button_gap, y= label_y_margin)
 	# Back button widget
-	tk.Button(
-		  avail_stock_frame,
-		  text="Back",
-		  font=("TkMenuFont", 16),
-		  bg="#28393a",
-		  fg="white",
-		  cursor="hand2",
-		  activebackground="#badee2",
-		  activeforeground="black",
-		  command=lambda:load_main_frame()).place(x=label_x_margin + button_gap, y= label_y_margin)
+	tk.Button(avail_stock_frame, text="Back", font=("TkMenuFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		  activeforeground="black", command=lambda:load_main_frame()).place(x=label_x_margin + 2*button_gap, y= label_y_margin+2*label_y_gap)
+
+
+def conv_quantity(units, st):
+	if units == 'Nos': # int
+		return int(st)
+	else: # float
+		return float(st)
+
+def gen_dict(curs):
+	cols = [d[0] for d in cursor.description]
+	rows=cursor.fetchall()
+	ret_d = []
+	for row in rows:
+		ret_d.append(dict(zip(cols, list(row))))
+	return ret_d
+
+def compute_available_stock():
+	# Read inventory and get units and price details
+	cursor.execute("select * from inventory")
+	inv_dict = gen_dict(cursor)
+	stock_init = {}
+	stock_cur = {}
+	stock_init_date = {}
+	price = {}
+	units = {}
+	for d in inv_dict:
+		stock_init[d['item_name']] = 0
+		stock_cur[d['item_name']] = 0
+		stock_init_date[d['item_name']] = '00/00/0000'
+		price[d['item_name']] = float(d['price'])
+		units[d['item_name']] = d['units']
+	# Read stock table and get initial stock with dates
+	cursor.execute("select * from stock")
+	stock_dict = gen_dict(cursor)
+	for d in stock_dict:
+		stock_init_date[d['item_name']] = d['date']
+		stock_init[d['item_name']] = conv_quantity(units[d['item_name']], d['quantity'])
+		stock_cur[d['item_name']] = stock_init[d['item_name']]
+	# Read purchase table
+	cursor.execute("select * from purchase")
+	pur_dict = gen_dict(cursor)
+	for d in pur_dict:
+		if d['date'] > stock_init_date[d['item_name']]:
+			stock_cur[d['item_name']] = stock_cur[d['item_name']] + conv_quantity(units[d['item_name']], d['quantity'])
+	# Read sale table
+	cursor.execute("select * from sale")
+	sale_dict = gen_dict(cursor)
+	for d in sale_dict:
+		if d['date'] > stock_init_date[d['item_name']]:
+			stock_cur[d['item_name']] = stock_cur[d['item_name']] - conv_quantity(units[d['item_name']], d['quantity'])
+	# Read return table
+	cursor.execute("select * from return")
+	ret_dict = gen_dict(cursor)
+	for d in ret_dict:
+		if d['date'] > stock_init_date[d['item_name']]:
+			stock_cur[d['item_name']] = stock_cur[d['item_name']] + conv_quantity(units[d['item_name']], d['quantity'])
+
+	# Populate available stock
+	cur_stock = []
+	id = 1
+	for item in stock_cur:
+		if stock_cur[item]:
+			cur_stock.append((id, item, str(stock_cur[item]), "%0.2f"%(stock_cur[item]*price[item])))
+			id = id + 1
+	return cur_stock
+
+def write_to_excel_file():
+	# Read stock table and get initial stock with dates
+	cursor.execute("select * from stock")
+	stock_dict = gen_dict(cursor)
+	# Read purchase table
+	cursor.execute("select * from purchase")
+	pur_dict = gen_dict(cursor)
+	# Read sale table
+	cursor.execute("select * from sale")
+	sale_dict = gen_dict(cursor)
+	# Read return table
+	cursor.execute("select * from return")
+	ret_dict = gen_dict(cursor)
+	avail_stock_dict = [dict(zip(['id', 'item_name', 'quantity', 'price'], d)) for d in compute_available_stock()]
+
+	xls_name = "Stock_data_%0s.xlsx" % datetime.now().strftime("%d%m%Y_%M%H")
+	writer = pd.ExcelWriter(xls_name, engine='xlsxwriter')
+
+	df = pd.DataFrame(stock_dict)
+	df.to_excel(writer, sheet_name="Initial Stock", index=False)
+
+	df = pd.DataFrame(pur_dict)
+	df.to_excel(writer, sheet_name="Purchase", index=False)
+
+	df = pd.DataFrame(sale_dict)
+	df.to_excel(writer, sheet_name="Sale", index=False)
+
+	df = pd.DataFrame(ret_dict)
+	df.to_excel(writer, sheet_name="Return", index=False)
+
+	df = pd.DataFrame(avail_stock_dict)
+	df.to_excel(writer, sheet_name="Available Stock", index=False)
+
+	writer.save()
+
+
 
 # initialize app
 root = tk.Tk()
@@ -750,9 +898,6 @@ cursor.execute(""" CREATE TABLE IF NOT EXISTS stock(id integer PRIMARY KEY AUTOI
 cur_view = "Inventory"
 
 load_main_frame()
-
-
-
 
 # run app
 root.mainloop()
