@@ -5,6 +5,8 @@ import sqlite3
 import random
 import pandas as pd
 from datetime import datetime
+import re
+import os
 
 bg_color = "#3d6466"
 
@@ -141,6 +143,14 @@ def clear_widgets(frame):
 	for wdg in frame.winfo_children():
 		wdg.destroy()
 
+def get_first_missing_num(ids):
+	num = len(ids)
+	for l in range(len(ids)):
+		if l not in ids:
+			num = l
+			break
+	return num
+
 def load_main_frame():
 	clear_widgets(inventory_frame)
 	clear_widgets(purchase_frame)
@@ -148,8 +158,10 @@ def load_main_frame():
 	clear_widgets(return_frame)
 	clear_widgets(stock_frame)
 	clear_widgets(avail_stock_frame)
+	clear_widgets(backup_frame)
 	main_frame.tkraise()
 	main_frame.pack_propagate(False)
+	label_font = 12
 	# create a frame widget
 	#logo_img = ImageTk.PhotoImage(file="logo.png")
 	#logo_widget = tk.Label(main_frame, image=logo_img)
@@ -158,27 +170,30 @@ def load_main_frame():
 	
 	# main_frame widgets
 	tk.Label(main_frame, text="Stock Manager", bg=bg_color, fg="white", font=("TkMenuFont", 18)).pack()
-	# button widget for inventory
-	tk.Button(main_frame, text="Inventory", font=("TkHeadingFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
-		activeforeground="black", command=lambda:load_inventory_frame()).pack(pady=20)
+	# button widget for Stock
+	tk.Button(main_frame, text="Old Stock", font=("TkHeadingFont", label_font), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		activeforeground="black", command=lambda:load_stock_frame()).pack(pady=20)
 	# button widget for purchase
-	tk.Button(main_frame, text="Purchase", font=("TkHeadingFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+	tk.Button(main_frame, text="Purchase", font=("TkHeadingFont", label_font), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
 		activeforeground="black", command=lambda:load_purchase_frame()).pack(pady=20)
 	# button widget for Sale
-	tk.Button(main_frame, text="Sale", font=("TkHeadingFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+	tk.Button(main_frame, text="Sale", font=("TkHeadingFont", label_font), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
 		activeforeground="black", command=lambda:load_sale_frame()).pack(pady=20)
 	# button widget for Return
-	tk.Button(main_frame, text="Return", font=("TkHeadingFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+	tk.Button(main_frame, text="Return", font=("TkHeadingFont", label_font), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
 		activeforeground="black", command=lambda:load_return_frame()).pack(pady=20)
-	# button widget for Stock
-	tk.Button(main_frame, text="Stock", font=("TkHeadingFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
-		activeforeground="black", command=lambda:load_stock_frame()).pack(pady=20)
 	# button widget for Available stock
-	tk.Button(main_frame, text="Available Stock", font=("TkHeadingFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+	tk.Button(main_frame, text="Available Stock", font=("TkHeadingFont", label_font), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
 		activeforeground="black", command=lambda:load_avail_stock_frame()).pack(pady=20)
 	# button widget for creating excel sheet
-	tk.Button(main_frame, text="Write to Excel", font=("TkHeadingFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+	tk.Button(main_frame, text="Write to Excel", font=("TkHeadingFont", label_font), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
 		activeforeground="black", command=lambda:write_to_excel_file()).pack(pady=20)
+	# button widget for inventory
+	tk.Button(main_frame, text="Inventory", font=("TkHeadingFont", label_font), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		activeforeground="black", command=lambda:load_inventory_frame()).pack(pady=20)
+	# button widget for backup and restore
+	tk.Button(main_frame, text="Backup and Restore", font=("TkHeadingFont", label_font), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		activeforeground="black", command=lambda:load_backup_frame()).pack(pady=20)
 
 def inventory_add():
 	item = inv_item.get()
@@ -190,8 +205,12 @@ def inventory_add():
 	if int(result[0]) > 0:
 		inv_item.err_msg["text"] = "Error: The entry already exists"
 	else:
-		cursor.execute("INSERT INTO inventory(item_name, units, price, tax) VALUES(?,?,?,?)", 
-				(item['item_name'], item['units'], item['price'], item['tax']))
+		cursor.execute("SELECT * from inventory")
+		result = cursor.fetchall()
+		ids = [int(re.sub('ST', '', r[2])) for r in result]
+		item_code = "ST%05d" % get_first_missing_num(ids)
+		cursor.execute("INSERT INTO inventory(item_name, item_code, units, price, tax) VALUES(?,?,?,?,?)", 
+				(item['item_name'], item_code, item['units'], item['price'], item['tax']))
 		conn.commit()
 		inv_item.err_msg["text"] = "Success: Added the new item"
 
@@ -206,8 +225,8 @@ def inventory_delete():
 		cursor.execute("delete from inventory where id = ?", (id,))
 		conn.commit()
 		cursor.execute("ALTER TABLE inventory RENAME TO temptable")
-		cursor.execute(""" CREATE TABLE inventory(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, units text NOT NULL, price text, tax text NOT NULL);""");
-		cursor.execute("""INSERT INTO inventory (item_name, units, price, tax) SELECT item_name, units, price, tax FROM temptable ORDER BY id;""") 
+		cursor.execute(""" CREATE TABLE inventory(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, item_code text NOT NULL, units text NOT NULL, price text, tax text NOT NULL);""");
+		cursor.execute("""INSERT INTO inventory (item_name, item_code, units, price, tax) SELECT item_name, item_code, units, price, tax FROM temptable ORDER BY id;""") 
 		cursor.execute("DROP TABLE temptable;")
 		conn.commit()
 		inv_item.err_msg["text"] = "Success: Deleted the entry"
@@ -371,7 +390,25 @@ def stock_delete():
 	else:
 		st_item.err_msg["text"] = "Entry doesnt exist"
 
+def create_db_backup():
+	global conn
+	global cursor
+	conn.close()
+	os.system("copy sm.db backup_sm.db")
+	conn = sqlite3.connect("sm.db")
+	cursor = conn.cursor()
 
+def restore_db():
+	global conn
+	global cursor
+	conn.close()
+	if(os.path.exists("backup_sm.db")):
+		os.system("copy backup_sm.db sm.db")
+		restore_err_msg = "Success: Restored backup"
+	else:
+		restore_err_msg = "Error: Backup file is not found"
+	conn = sqlite3.connect("sm.db")
+	cursor = conn.cursor()
 
 def load_view_frame():
 	global cur_view
@@ -381,6 +418,7 @@ def load_view_frame():
 	clear_widgets(return_frame)
 	clear_widgets(stock_frame)
 	clear_widgets(avail_stock_frame)
+	clear_widgets(backup_frame)
 	view_frame.tkraise()
 
 	# create a frame widget
@@ -419,14 +457,14 @@ def load_view_frame():
 	elif cur_view == "Return":
 		tk.Label(view_frame, text="Return List", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 	elif cur_view == "Stock":
-		tk.Label(view_frame, text="Stock List", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
+		tk.Label(view_frame, text="Old Stock List", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 	elif cur_view == "Available_stock":
 		tk.Label(view_frame, text="Available Stock", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 
 	scrolly = tk.Scrollbar(view_frame,orient=tk.VERTICAL)
 	scrollx = tk.Scrollbar(view_frame,orient=tk.HORIZONTAL)
 	if cur_view == "Inventory":
-		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name","units","price", "tax"),
+		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name", "item_code", "units","price", "tax"),
 				         xscrollcommand=scrollx.set,yscrollcommand=scrolly.set)
 	elif cur_view == "Purchase":
 		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name","quantity","date","company"),
@@ -441,7 +479,7 @@ def load_view_frame():
 		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name","quantity","date"),
 				         xscrollcommand=scrollx.set,yscrollcommand=scrolly.set)
 	elif cur_view == "Available_stock":
-		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name","quantity", "price"),
+		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name", "item_code", "quantity", "price"),
 				         xscrollcommand=scrollx.set,yscrollcommand=scrolly.set)
 	
 	scrollx.pack(side=tk.BOTTOM,fill=tk.X)
@@ -455,9 +493,11 @@ def load_view_frame():
 	CourseTable.column("item_name",width=100)
 	CourseTable["show"]="headings"
 	if cur_view == "Inventory":
+		CourseTable.heading("item_code",text="Item Code")
 		CourseTable.heading("units",text="Units")
 		CourseTable.heading("price",text="Price")
 		CourseTable.heading("tax",text="Tax(%)")
+		CourseTable.column("item_code",width=100)
 		CourseTable.column("units",width=100)
 		CourseTable.column("price",width=100)
 		CourseTable.column("tax",width=100)
@@ -498,8 +538,10 @@ def load_view_frame():
 		CourseTable.column("quantity",width=100)
 		CourseTable.column("date",width=100)
 	elif cur_view == "Available_stock":
+		CourseTable.heading("item_code",text="Item Code")
 		CourseTable.heading("quantity",text="Quantity")
 		CourseTable.heading("price",text="Price")
+		CourseTable.column("item_code",width=100)
 		CourseTable.column("quantity",width=100)
 		CourseTable.column("price",width=100)
 	CourseTable.pack(fill=tk.BOTH,expand=1)
@@ -576,6 +618,10 @@ def load_purchase_frame():
 	clear_widgets(view_frame)
 	cur_frame = purchase_frame
 	cur_frame.tkraise()
+
+	cursor.execute("SELECT * from inventory")
+	result = cursor.fetchall()
+	items = [r[1] for r in result] # item_name
 
 	# create a frame widget
 	#logo_img = ImageTk.PhotoImage(file="logo1.png")
@@ -723,7 +769,7 @@ def load_stock_frame():
 	#logo_widget.pack(pady=20)
 
 	# cur_frame widgets
-	tk.Label(cur_frame, text="Stock", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
+	tk.Label(cur_frame, text="Old Stock", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 
 	tk.Label(cur_frame, font=label_font, text="Item Name").place(x=label_x_margin, y=label_y_margin)
 	tk.Label(cur_frame, font=label_font, text="Quantity").place(x=label_x_margin, y=label_y_margin+label_y_gap)
@@ -748,6 +794,36 @@ def load_stock_frame():
 	# Back button widget
 	tk.Button(cur_frame, text="Back", font=("TkMenuFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
 		  activeforeground="black", command=lambda:load_main_frame()).place(x=label_x_margin + button_gap, y= label_y_margin+7*label_y_gap)
+
+def load_backup_frame():
+	global cur_view
+	cur_view = "Backup"
+	clear_widgets(main_frame)
+	clear_widgets(view_frame)
+	cur_frame = backup_frame 
+	cur_frame.tkraise()
+
+	# backup_frame widgets
+	tk.Label(backup_frame, 
+		 text="Backup and Restore", 
+		 bg=bg_color, 
+		 fg="white", 
+		 font=("TkHeadingFont", 20)
+	).pack(pady=25)
+
+	error = tk.Message(cur_frame, text="", width=200, bg=bg_color)
+	error.place(x = entry_x_margin, y = 70)
+	restore_err_msg = error
+
+	# Backup button widget
+	tk.Button(backup_frame, text="Backup", font=("TkMenuFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		  activeforeground="black", command=lambda:create_db_backup()).place(x=label_x_margin + 2*button_gap, y= label_y_margin)
+	# Restore button widget
+	tk.Button(backup_frame, text="Restore", font=("TkMenuFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		  activeforeground="black", command=lambda:restore_db()).place(x=label_x_margin + 2*button_gap, y= label_y_margin+2*label_y_gap)
+	# Back button widget
+	tk.Button(backup_frame, text="Back", font=("TkMenuFont", 16), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
+		  activeforeground="black", command=lambda:load_main_frame()).place(x=label_x_margin + 2*button_gap, y= label_y_margin+4*label_y_gap)
 
 def load_avail_stock_frame():
 	global cur_view
@@ -785,12 +861,23 @@ def conv_quantity(units, st):
 		return float(st)
 
 def gen_dict(curs):
-	cols = [d[0] for d in cursor.description]
-	rows=cursor.fetchall()
+	cols = [d[0] for d in curs.description]
+	rows=curs.fetchall()
 	ret_d = []
 	for row in rows:
 		ret_d.append(dict(zip(cols, list(row))))
 	return ret_d
+
+def sort_dict_arr(c_dict_arr):
+	# sort by item_name and date
+	items = []
+	[items.append(c_dict_arr[i]['item_name']) for i in range(len(c_dict_arr)) if c_dict_arr[i]['item_name'] not in items]
+	sorted_dict_arr = []
+	for item in items:
+		cur_arr = [c_dict_arr[i] for i in range(len(c_dict_arr)) if c_dict_arr[i]['item_name']==item]
+		cur_arr = sorted(cur_arr, key=lambda d : d['date'])
+		sorted_dict_arr = sorted_dict_arr + cur_arr
+	return sorted_dict_arr
 
 def compute_available_stock():
 	# Read inventory and get units and price details
@@ -802,6 +889,7 @@ def compute_available_stock():
 	price = {}
 	tax = {}
 	units = {}
+	item_code = {}
 	for d in inv_dict:
 		stock_init[d['item_name']] = 0
 		stock_cur[d['item_name']] = 0
@@ -809,6 +897,7 @@ def compute_available_stock():
 		price[d['item_name']] = float(d['price'])*(1+float(d['tax'])/100)
 		tax[d['item_name']] = float(d['tax'])
 		units[d['item_name']] = d['units']
+		item_code[d['item_name']] = d['item_code']
 	# Read stock table and get initial stock with dates
 	cursor.execute("select * from stock")
 	stock_dict = gen_dict(cursor)
@@ -841,10 +930,10 @@ def compute_available_stock():
 	total_price = 0
 	for item in stock_cur:
 		if stock_cur[item]:
-			cur_stock.append((id, item, str(stock_cur[item]), "%0.2f"%(stock_cur[item]*price[item])))
+			cur_stock.append((id, item, item_code[item], str(stock_cur[item]), "%0.2f"%(stock_cur[item]*price[item])))
 			id = id + 1
 			total_price = total_price + stock_cur[item]*price[item]
-	cur_stock.append((id, 'TOTAL', 'NA', "%0.2f"%(total_price)))
+	cur_stock.append((id, 'TOTAL', 'NA', 'NA', "%0.2f"%(total_price)))
 	return cur_stock
 
 def write_to_excel_file():
@@ -852,9 +941,11 @@ def write_to_excel_file():
 	inv_dict = gen_dict(cursor)
 	price = {}
 	units = {}
+	item_code = {}
 	for d in inv_dict:
 		price[d['item_name']] = float(d['price'])*(1+float(d['tax'])/100)
 		units[d['item_name']] = d['units']
+		item_code[d['item_name']] = d['item_code']
 	# Read stock table and get initial stock with dates
 	cursor.execute("select * from stock")
 	stock_dict = gen_dict(cursor)
@@ -862,8 +953,10 @@ def write_to_excel_file():
 	tot_price = 0
 	for d in range(tot_items):
 		stock_dict[d]['price'] = conv_quantity(units[stock_dict[d]['item_name']], stock_dict[d]['quantity'])*price[stock_dict[d]['item_name']]
+		stock_dict[d]['item_code'] = item_code[stock_dict[d]['item_name']]
 		tot_price = tot_price + stock_dict[d]['price']
-	stock_dict.append({'id':tot_items+1, 'item_name':'TOTAL', 'quantity':'NA', 'date':'NA', 'price':tot_price})
+	stock_dict = sort_dict_arr(stock_dict)
+	stock_dict.append({'id':tot_items+1, 'item_name':'TOTAL', 'item_code':'NA', 'quantity':'NA', 'date':'NA', 'price':tot_price})
 	# Read purchase table
 	cursor.execute("select * from purchase")
 	pur_dict = gen_dict(cursor)
@@ -871,8 +964,10 @@ def write_to_excel_file():
 	tot_price = 0
 	for d in range(tot_items):
 		pur_dict[d]['price'] = conv_quantity(units[pur_dict[d]['item_name']], pur_dict[d]['quantity'])*price[pur_dict[d]['item_name']]
+		pur_dict[d]['item_code'] = item_code[pur_dict[d]['item_name']]
 		tot_price = tot_price + pur_dict[d]['price']
-	pur_dict.append({'id':tot_items+1, 'item_name':'TOTAL', 'quantity':'NA', 'date':'NA', 'company':'NA', 'price':tot_price})
+	pur_dict = sort_dict_arr(pur_dict)
+	pur_dict.append({'id':tot_items+1, 'item_name':'TOTAL', 'item_code':'NA', 'quantity':'NA', 'date':'NA', 'company':'NA', 'price':tot_price})
 	# Read sale table
 	cursor.execute("select * from sale")
 	sale_dict = gen_dict(cursor)
@@ -880,8 +975,10 @@ def write_to_excel_file():
 	tot_price = 0
 	for d in range(tot_items):
 		sale_dict[d]['price'] = conv_quantity(units[sale_dict[d]['item_name']], sale_dict[d]['quantity'])*price[sale_dict[d]['item_name']]
+		sale_dict[d]['item_code'] = item_code[sale_dict[d]['item_name']]
 		tot_price = tot_price + sale_dict[d]['price']
-	sale_dict.append({'id':tot_items+1, 'item_name':'TOTAL', 'quantity':'NA', 'date':'NA', 'to_p':'NA', 'frm':'NA', 'invoice':'NA', 'vehicle':'NA', 'remarks':'NA', 'price':tot_price})
+	sale_dict = sort_dict_arr(sale_dict)
+	sale_dict.append({'id':tot_items+1, 'item_name':'TOTAL', 'item_code':'NA', 'quantity':'NA', 'date':'NA', 'to_p':'NA', 'frm':'NA', 'invoice':'NA', 'vehicle':'NA', 'remarks':'NA', 'price':tot_price})
 	# Read return table
 	cursor.execute("select * from return")
 	ret_dict = gen_dict(cursor)
@@ -889,11 +986,13 @@ def write_to_excel_file():
 	tot_price = 0
 	for d in range(tot_items):
 		ret_dict[d]['price'] = conv_quantity(units[ret_dict[d]['item_name']], ret_dict[d]['quantity'])*price[ret_dict[d]['item_name']]
+		ret_dict[d]['item_code'] = item_code[ret_dict[d]['item_name']]
 		tot_price = tot_price + ret_dict[d]['price']
-	ret_dict.append({'id':tot_items+1, 'item_name':'TOTAL', 'quantity':'NA', 'date':'NA', 'to_p':'NA', 'frm':'NA', 'price':tot_price})
+	ret_dict = sort_dict_arr(ret_dict)
+	ret_dict.append({'id':tot_items+1, 'item_name':'TOTAL', 'item_code':'NA', 'quantity':'NA', 'date':'NA', 'to_p':'NA', 'frm':'NA', 'price':tot_price})
 
 	# Get available stock
-	avail_stock_dict = [dict(zip(['id', 'item_name', 'quantity', 'price'], d)) for d in compute_available_stock()]
+	avail_stock_dict = [dict(zip(['id', 'item_name', 'item_code', 'quantity', 'price'], d)) for d in compute_available_stock()]
 
 	xls_name = "Stock_data_%0s.xlsx" % datetime.now().strftime("%d%m%Y_%H%M")
 	writer = pd.ExcelWriter(xls_name, engine='xlsxwriter')
@@ -902,7 +1001,7 @@ def write_to_excel_file():
 	df.to_excel(writer, sheet_name="Inventory List", index=False)
 
 	df = pd.DataFrame(stock_dict)
-	df.to_excel(writer, sheet_name="Initial Stock", index=False)
+	df.to_excel(writer, sheet_name="Old Stock", index=False)
 
 	df = pd.DataFrame(pur_dict)
 	df.to_excel(writer, sheet_name="Purchase", index=False)
@@ -951,6 +1050,9 @@ purchase_frame.grid(row=0, column=0, sticky="nesw")
 stock_frame = tk.Frame(root, width=500, height=600, bg=bg_color)
 stock_frame.grid(row=0, column=0, sticky="nesw")
 
+backup_frame = tk.Frame(root, width=500, height=600, bg=bg_color)
+backup_frame.grid(row=0, column=0, sticky="nesw")
+
 avail_stock_frame = tk.Frame(root, width=500, height=600, bg=bg_color)
 avail_stock_frame.grid(row=0, column=0, sticky="nesw")
 
@@ -962,10 +1064,11 @@ pur_item = purchase_item()
 sl_item = sale_item()
 ret_item = return_item()
 st_item = stock_item()
+restore_err_msg = ""
 
 conn =sqlite3.connect("sm.db")
 cursor = conn.cursor()
-cursor.execute(""" CREATE TABLE IF NOT EXISTS inventory(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, units text NOT NULL, price text NOT NULL, tax text NOT NULL) """);
+cursor.execute(""" CREATE TABLE IF NOT EXISTS inventory(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, item_code text NOT NULL, units text NOT NULL, price text NOT NULL, tax text NOT NULL) """);
 cursor.execute(""" CREATE TABLE IF NOT EXISTS purchase(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL, company text NOT NULL) """);
 cursor.execute(""" CREATE TABLE IF NOT EXISTS sale(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL, to_p text NOT NULL, frm text NOT NULL, invoice text NOT NULL, vehicle text NOT NULL, remarks text NOT NULL) """);
 cursor.execute(""" CREATE TABLE IF NOT EXISTS return(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL, to_p text NOT NULL, frm text NOT NULL) """);
