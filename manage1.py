@@ -16,12 +16,14 @@ class inventory_item:
 		self.units = tk.StringVar()
 		self.price = tk.StringVar()
 		self.tax = tk.StringVar()
+		self.date = tk.StringVar()
 		self.err_msg = ""
 		self.id = tk.StringVar()
 	def get(self):
 		return {'item_name' : self.item_name.get(),
 			'units'     : self.units.get(),
 			'price'     : self.price.get(),
+			'date'		: self.date.get(),
 			'tax'       : self.tax.get()
 			}
 	def get_id(self):
@@ -31,6 +33,7 @@ class inventory_item:
 		self.units.set("")
 		self.price.set("")
 		self.tax.set("")
+		self.date.set("")
 		self.id.set("")
 
 class purchase_item:
@@ -195,22 +198,37 @@ def load_main_frame():
 	tk.Button(main_frame, text="Backup and Restore", font=("TkHeadingFont", label_font), bg="#28393a", fg="white", cursor="hand2", activebackground="#badee2",
 		activeforeground="black", command=lambda:load_backup_frame()).pack(pady=20)
 
+def get_item_name(curs, item_code):
+	curs.execute("SELECT * from inventory")
+	inv_dict = gen_dict(curs)
+	inv_item_code = {}
+	for d in inv_dict: inv_item_code[d['item_code']] = d['item_name']
+	return inv_item_code[item_code]
+
+
 def inventory_add():
 	item = inv_item.get()
 
-	cursor.execute("SELECT COUNT(*) from inventory WHERE item_name = '" +item['item_name']+"' ")
+	cursor.execute("SELECT COUNT(*) from inventory WHERE item_name = ? and date = ?", (item['item_name'], item['date']))
 	result = cursor.fetchone()
+	cursor.execute("select * from inventory")
+	inv_dict = gen_dict(cursor)
+	inv_item_code = {}
+	for d in inv_dict: inv_item_code[d['item_name']] = d['item_code']
 
 	inv_item.err_msg["text"] = ""
 	if int(result[0]) > 0:
 		inv_item.err_msg["text"] = "Error: The entry already exists"
 	else:
-		cursor.execute("SELECT * from inventory")
-		result = cursor.fetchall()
-		ids = [int(re.sub('ST', '', r[2])) for r in result]
-		item_code = "ST%05d" % get_first_missing_num(ids)
-		cursor.execute("INSERT INTO inventory(item_name, item_code, units, price, tax) VALUES(?,?,?,?,?)", 
-				(item['item_name'], item_code, item['units'], item['price'], item['tax']))
+		if(item['item_name'] in inv_item_code):
+			item_code = inv_item_code[item['item_name']]
+		else:
+			cursor.execute("SELECT * from inventory")
+			result = cursor.fetchall()
+			ids = [int(re.sub('ST', '', r[3])) for r in result]
+			item_code = "ST%05d" % get_first_missing_num(ids)
+		cursor.execute("INSERT INTO inventory(item_name, date, item_code, units, price, tax) VALUES(?,?,?,?,?,?)", 
+				(item['item_name'], item['date'], item_code, item['units'], item['price'], item['tax']))
 		conn.commit()
 		inv_item.err_msg["text"] = "Success: Added the new item"
 
@@ -225,8 +243,8 @@ def inventory_delete():
 		cursor.execute("delete from inventory where id = ?", (id,))
 		conn.commit()
 		cursor.execute("ALTER TABLE inventory RENAME TO temptable")
-		cursor.execute(""" CREATE TABLE inventory(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, item_code text NOT NULL, units text NOT NULL, price text, tax text NOT NULL);""");
-		cursor.execute("""INSERT INTO inventory (item_name, item_code, units, price, tax) SELECT item_name, item_code, units, price, tax FROM temptable ORDER BY id;""") 
+		cursor.execute(""" CREATE TABLE inventory(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, date text NOT NULL, item_code text NOT NULL, units text NOT NULL, price text, tax text NOT NULL);""");
+		cursor.execute("""INSERT INTO inventory (item_name, date, item_code, units, price, tax) SELECT item_name, date, item_code, units, price, tax FROM temptable ORDER BY id;""") 
 		cursor.execute("DROP TABLE temptable;")
 		conn.commit()
 		inv_item.err_msg["text"] = "Success: Deleted the entry"
@@ -235,12 +253,14 @@ def inventory_delete():
 
 def purchase_add():
 	item = pur_item.get()
-	cursor.execute("SELECT COUNT(*) from inventory WHERE item_name = '" +item['item_name']+"' ")
+	cursor.execute("SELECT COUNT(*) from inventory WHERE item_code = '" +item['item_name']+"' ")
 	result = cursor.fetchone()
+	print(result)
 	if int(result[0]) > 0:
+		item_name = get_item_name(cursor, item['item_name'])
 
 		cursor.execute("SELECT COUNT(*) from purchase WHERE item_name = ? and quantity = ? and date = ? and company = ?",
-				(item['item_name'], item['quantity'], item['date'], item['company']))
+				(item_name, item['quantity'], item['date'], item['company']))
 		result = cursor.fetchone()
 
 		pur_item.err_msg["text"] = ""
@@ -248,7 +268,7 @@ def purchase_add():
 			pur_item.err_msg["text"] = "Error: The entry already exists"
 		else:
 			cursor.execute("INSERT INTO purchase(item_name, quantity, date, company) VALUES(?,?,?,?)", 
-					(item['item_name'], item['quantity'], item['date'], item['company']))
+					(item_name, item['quantity'], item['date'], item['company']))
 			conn.commit()
 			pur_item.err_msg["text"] = "Success: Added the new item"
 	else:
@@ -275,11 +295,12 @@ def purchase_delete():
 
 def sale_add():
 	item = sl_item.get()
-	cursor.execute("SELECT COUNT(*) from inventory WHERE item_name = '" +item['item_name']+"' ")
+	cursor.execute("SELECT COUNT(*) from inventory WHERE item_code = '" +item['item_name']+"' ")
 	result = cursor.fetchone()
 	if int(result[0]) > 0:
+		item_name = get_item_name(cursor, item['item_name'])
 		cursor.execute("SELECT COUNT(*) from sale WHERE item_name = ? and quantity = ? and date = ? and invoice = ?",
-				(item['item_name'], item['quantity'], item['date'], item['invoice']))
+				(item_name, item['quantity'], item['date'], item['invoice']))
 		result = cursor.fetchone()
 
 		sl_item.err_msg["text"] = ""
@@ -287,7 +308,7 @@ def sale_add():
 			sl_item.err_msg["text"] = "Error: The entry with invoice already exists"
 		else:
 			cursor.execute("INSERT INTO sale(item_name, quantity, date, to_p, frm, invoice, vehicle, remarks) VALUES(?,?,?,?,?,?,?,?)", 
-					(item['item_name'], item['quantity'], item['date'], item['to'], item['frm'], item['invoice'], item['vehicle'], item['remarks']))
+					(item_name, item['quantity'], item['date'], item['to'], item['frm'], item['invoice'], item['vehicle'], item['remarks']))
 			conn.commit()
 			sl_item.err_msg["text"] = "Success: Added the new item"
 	else:
@@ -314,11 +335,12 @@ def sale_delete():
 
 def return_add():
 	item = ret_item.get()
-	cursor.execute("SELECT COUNT(*) from inventory WHERE item_name = '" +item['item_name']+"' ")
+	cursor.execute("SELECT COUNT(*) from inventory WHERE item_code = '" +item['item_name']+"' ")
 	result = cursor.fetchone()
 	if int(result[0]) > 0:
+		item_name = get_item_name(cursor, item['item_name'])
 		cursor.execute("SELECT COUNT(*) from return WHERE item_name = ? and quantity = ? and date = ? and to_p = ? and frm = ?",
-				(item['item_name'], item['quantity'], item['date'], item['to'], item['frm']))
+				(item_name, item['quantity'], item['date'], item['to'], item['frm']))
 		result = cursor.fetchone()
 
 		ret_item.err_msg["text"] = ""
@@ -326,7 +348,7 @@ def return_add():
 			ret_item.err_msg["text"] = "Error: The entry already exists"
 		else:
 			cursor.execute("INSERT INTO return(item_name, quantity, date, to_p, frm) VALUES(?,?,?,?,?)", 
-					(item['item_name'], item['quantity'], item['date'], item['to'], item['frm']))
+					(item_name, item['quantity'], item['date'], item['to'], item['frm']))
 			conn.commit()
 			ret_item.err_msg["text"] = "Success: Added the new item"
 	else:
@@ -353,11 +375,12 @@ def return_delete():
 
 def stock_add():
 	item = st_item.get()
-	cursor.execute("SELECT COUNT(*) from inventory WHERE item_name = '" +item['item_name']+"' ")
+	cursor.execute("SELECT COUNT(*) from inventory WHERE item_code = '" +item['item_name']+"' ")
 	result = cursor.fetchone()
 	if int(result[0]) > 0:
+		item_name = get_item_name(cursor, item['item_name'])
 		cursor.execute("SELECT COUNT(*) from stock WHERE item_name = ? and quantity = ? and date = ?",
-				(item['item_name'], item['quantity'], item['date']))
+				(item_name, item['quantity'], item['date']))
 		result = cursor.fetchone()
 
 		st_item.err_msg["text"] = ""
@@ -365,7 +388,7 @@ def stock_add():
 			st_item.err_msg["text"] = "Error: The entry already exists"
 		else:
 			cursor.execute("INSERT INTO stock(item_name, quantity, date) VALUES(?,?,?)", 
-					(item['item_name'], item['quantity'], item['date']))
+					(item_name, item['quantity'], item['date']))
 			conn.commit()
 			st_item.err_msg["text"] = "Success: Added the new item"
 	else:
@@ -464,7 +487,7 @@ def load_view_frame():
 	scrolly = tk.Scrollbar(view_frame,orient=tk.VERTICAL)
 	scrollx = tk.Scrollbar(view_frame,orient=tk.HORIZONTAL)
 	if cur_view == "Inventory":
-		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name", "item_code", "units","price", "tax"),
+		CourseTable=ttk.Treeview(view_frame,columns=("id", "date", "item_name", "item_code", "units","price", "tax"),
 				         xscrollcommand=scrollx.set,yscrollcommand=scrolly.set)
 	elif cur_view == "Purchase":
 		CourseTable=ttk.Treeview(view_frame,columns=("id", "item_name","quantity","date","company"),
@@ -493,10 +516,12 @@ def load_view_frame():
 	CourseTable.column("item_name",width=100)
 	CourseTable["show"]="headings"
 	if cur_view == "Inventory":
+		CourseTable.heading("date",text="Date")
 		CourseTable.heading("item_code",text="Item Code")
 		CourseTable.heading("units",text="Units")
 		CourseTable.heading("price",text="Price")
 		CourseTable.heading("tax",text="Tax(%)")
+		CourseTable.column("date",width=100)
 		CourseTable.column("item_code",width=100)
 		CourseTable.column("units",width=100)
 		CourseTable.column("price",width=100)
@@ -585,14 +610,16 @@ def load_inventory_frame():
 	# cur_frame widgets
 	tk.Label(cur_frame, text="Inventory", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 
-	item_name_label = tk.Label(cur_frame, font=label_font, text="Item Name").place(x=label_x_margin, y=label_y_margin)
-	units_label = tk.Label(cur_frame, font=label_font, text="Units").place(x=label_x_margin, y=label_y_margin+label_y_gap)
-	price_label = tk.Label(cur_frame, font=label_font, text="Price").place(x=label_x_margin, y=label_y_margin+2*label_y_gap)
-	tax_label = tk.Label(cur_frame, font=label_font, text="Tax").place(x=label_x_margin, y=label_y_margin+3*label_y_gap)
-	tk.Entry(cur_frame, textvariable=inv_item.item_name, width=30).place(x=entry_x_margin, y=label_y_margin)
-	tk.Entry(cur_frame, textvariable=inv_item.units, width=30).place(x=entry_x_margin, y=label_y_margin+1*label_y_gap)
-	tk.Entry(cur_frame, textvariable=inv_item.price, width=30).place(x=entry_x_margin, y=label_y_margin+2*label_y_gap)
-	tk.Entry(cur_frame, textvariable=inv_item.tax, width=30).place(x=entry_x_margin, y=label_y_margin+3*label_y_gap)
+	date_label = tk.Label(cur_frame, font=label_font, text="Date").place(x=label_x_margin, y=label_y_margin)
+	item_name_label = tk.Label(cur_frame, font=label_font, text="Item Name").place(x=label_x_margin, y=label_y_margin+1*label_y_gap)
+	units_label = tk.Label(cur_frame, font=label_font, text="Units").place(x=label_x_margin, y=label_y_margin+2*label_y_gap)
+	price_label = tk.Label(cur_frame, font=label_font, text="Price").place(x=label_x_margin, y=label_y_margin+3*label_y_gap)
+	tax_label = tk.Label(cur_frame, font=label_font, text="Tax").place(x=label_x_margin, y=label_y_margin+4*label_y_gap)
+	tk.Entry(cur_frame, textvariable=inv_item.date, width=30).place(x=entry_x_margin, y=label_y_margin)
+	tk.Entry(cur_frame, textvariable=inv_item.item_name, width=30).place(x=entry_x_margin, y=label_y_margin+1*label_y_gap)
+	tk.Entry(cur_frame, textvariable=inv_item.units, width=30).place(x=entry_x_margin, y=label_y_margin+2*label_y_gap)
+	tk.Entry(cur_frame, textvariable=inv_item.price, width=30).place(x=entry_x_margin, y=label_y_margin+3*label_y_gap)
+	tk.Entry(cur_frame, textvariable=inv_item.tax, width=30).place(x=entry_x_margin, y=label_y_margin+4*label_y_gap)
 	error = tk.Message(cur_frame, text="", width=200, bg=bg_color)
 	error.place(x = entry_x_margin, y = 70)
 	inv_item.err_msg = error
@@ -632,7 +659,7 @@ def load_purchase_frame():
 	# cur_frame widgets
 	tk.Label(cur_frame, text="Purchase", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 
-	tk.Label(cur_frame, font=label_font, text="Item Name").place(x=label_x_margin, y=label_y_margin)
+	tk.Label(cur_frame, font=label_font, text="Item Code").place(x=label_x_margin, y=label_y_margin)
 	tk.Label(cur_frame, font=label_font, text="Quantity").place(x=label_x_margin, y=label_y_margin+label_y_gap)
 	tk.Label(cur_frame, font=label_font, text="Date").place(x=label_x_margin, y=label_y_margin+2*label_y_gap)
 	tk.Label(cur_frame, font=label_font, text="Company").place(x=label_x_margin, y=label_y_margin+3*label_y_gap)
@@ -675,7 +702,7 @@ def load_sale_frame():
 	# cur_frame widgets
 	tk.Label(cur_frame, text="Sale", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 
-	tk.Label(cur_frame, font=label_font, text="Item Name").place(x=label_x_margin, y=label_y_margin)
+	tk.Label(cur_frame, font=label_font, text="Item Code").place(x=label_x_margin, y=label_y_margin)
 	tk.Label(cur_frame, font=label_font, text="Quantity").place(x=label_x_margin, y=label_y_margin+label_y_gap)
 	tk.Label(cur_frame, font=label_font, text="Date").place(x=label_x_margin, y=label_y_margin+2*label_y_gap)
 	tk.Label(cur_frame, font=label_font, text="To").place(x=label_x_margin, y=label_y_margin+3*label_y_gap)
@@ -726,7 +753,7 @@ def load_return_frame():
 	# cur_frame widgets
 	tk.Label(cur_frame, text="Return", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 
-	tk.Label(cur_frame, font=label_font, text="Item Name").place(x=label_x_margin, y=label_y_margin)
+	tk.Label(cur_frame, font=label_font, text="Item Code").place(x=label_x_margin, y=label_y_margin)
 	tk.Label(cur_frame, font=label_font, text="Quantity").place(x=label_x_margin, y=label_y_margin+label_y_gap)
 	tk.Label(cur_frame, font=label_font, text="Date").place(x=label_x_margin, y=label_y_margin+2*label_y_gap)
 	tk.Label(cur_frame, font=label_font, text="To").place(x=label_x_margin, y=label_y_margin+3*label_y_gap)
@@ -771,7 +798,7 @@ def load_stock_frame():
 	# cur_frame widgets
 	tk.Label(cur_frame, text="Old Stock", bg=bg_color, fg="white", font=("TkHeadingFont", 20)).pack(pady=20)
 
-	tk.Label(cur_frame, font=label_font, text="Item Name").place(x=label_x_margin, y=label_y_margin)
+	tk.Label(cur_frame, font=label_font, text="Item Code").place(x=label_x_margin, y=label_y_margin)
 	tk.Label(cur_frame, font=label_font, text="Quantity").place(x=label_x_margin, y=label_y_margin+label_y_gap)
 	tk.Label(cur_frame, font=label_font, text="Date").place(x=label_x_margin, y=label_y_margin+2*label_y_gap)
 	tk.Entry(cur_frame, textvariable=st_item.item_name, width=30).place(x=entry_x_margin, y=label_y_margin)
@@ -879,22 +906,50 @@ def sort_dict_arr(c_dict_arr):
 		sorted_dict_arr = sorted_dict_arr + cur_arr
 	return sorted_dict_arr
 
+def format_date(date):
+	d_arr = date.split('/')
+	if(len(d_arr[0]) == 4):
+		return date
+	else:
+		d_arr.reverse()
+		return '/'.join(d_arr)
+
+def compute_price(qty, date, price_dict):
+	# sort price_dict
+	date_f = format_date(date)
+	price_d = {}
+	for d in price_dict:
+		price_d[d[1]] = d[0]
+	dates = [price_dict[i][1] for i in range(len(price_dict))]
+	dates = sorted(dates)
+	pick_date = dates[0]
+	for d in dates:
+		if(date_f < format_date(d)): break
+		pick_date = d
+	return (qty*price_d[pick_date])
+
+
 def compute_available_stock():
 	# Read inventory and get units and price details
 	cursor.execute("select * from inventory")
 	inv_dict = gen_dict(cursor)
 	stock_init = {}
 	stock_cur = {}
+	stock_cur_price = {}
 	stock_init_date = {}
 	price = {}
 	tax = {}
 	units = {}
 	item_code = {}
+	qty_t = 0
 	for d in inv_dict:
 		stock_init[d['item_name']] = 0
 		stock_cur[d['item_name']] = 0
+		stock_cur_price[d['item_name']] = 0
 		stock_init_date[d['item_name']] = '0000/00/00'
-		price[d['item_name']] = float(d['price'])*(1+float(d['tax'])/100)
+		if not d['item_name'] in price:
+			price[d['item_name']] = []
+		price[d['item_name']].append([float(d['price'])*(1+float(d['tax'])/100), d['date']])
 		tax[d['item_name']] = float(d['tax'])
 		units[d['item_name']] = d['units']
 		item_code[d['item_name']] = d['item_code']
@@ -902,27 +957,34 @@ def compute_available_stock():
 	cursor.execute("select * from stock")
 	stock_dict = gen_dict(cursor)
 	for d in stock_dict:
-		stock_init_date[d['item_name']] = d['date']
+		stock_init_date[d['item_name']] = format_date(d['date'])
 		stock_init[d['item_name']] = conv_quantity(units[d['item_name']], d['quantity'])
 		stock_cur[d['item_name']] = stock_init[d['item_name']]
+		stock_cur_price[d['item_name']] = compute_price(stock_init[d['item_name']], d['date'], price[d['item_name']])
 	# Read purchase table
 	cursor.execute("select * from purchase")
 	pur_dict = gen_dict(cursor)
 	for d in pur_dict:
-		if d['date'] > stock_init_date[d['item_name']]:
-			stock_cur[d['item_name']] = stock_cur[d['item_name']] + conv_quantity(units[d['item_name']], d['quantity'])
+		if format_date(d['date']) >= stock_init_date[d['item_name']]:
+			qty_t = conv_quantity(units[d['item_name']], d['quantity'])
+			stock_cur[d['item_name']] = stock_cur[d['item_name']] + qty_t
+			stock_cur_price[d['item_name']] = stock_cur_price[d['item_name']] + compute_price(qty_t, d['date'], price[d['item_name']])
 	# Read sale table
 	cursor.execute("select * from sale")
 	sale_dict = gen_dict(cursor)
 	for d in sale_dict:
-		if d['date'] > stock_init_date[d['item_name']]:
-			stock_cur[d['item_name']] = stock_cur[d['item_name']] - conv_quantity(units[d['item_name']], d['quantity'])
+		if format_date(d['date']) >= stock_init_date[d['item_name']]:
+			qty_t = conv_quantity(units[d['item_name']], d['quantity'])
+			stock_cur[d['item_name']] = stock_cur[d['item_name']] - qty_t
+			stock_cur_price[d['item_name']] = stock_cur_price[d['item_name']] - compute_price(qty_t, d['date'], price[d['item_name']])
 	# Read return table
 	cursor.execute("select * from return")
 	ret_dict = gen_dict(cursor)
 	for d in ret_dict:
-		if d['date'] > stock_init_date[d['item_name']]:
-			stock_cur[d['item_name']] = stock_cur[d['item_name']] + conv_quantity(units[d['item_name']], d['quantity'])
+		if format_date(d['date']) >= stock_init_date[d['item_name']]:
+			qty_t = conv_quantity(units[d['item_name']], d['quantity'])
+			stock_cur[d['item_name']] = stock_cur[d['item_name']] + qty_t
+			stock_cur_price[d['item_name']] = stock_cur_price[d['item_name']] + compute_price(qty_t, d['date'], price[d['item_name']])
 
 	# Populate available stock
 	cur_stock = []
@@ -930,9 +992,9 @@ def compute_available_stock():
 	total_price = 0
 	for item in stock_cur:
 		if stock_cur[item]:
-			cur_stock.append((id, item, item_code[item], str(stock_cur[item]), "%0.2f"%(stock_cur[item]*price[item])))
+			cur_stock.append((id, item, item_code[item], str(stock_cur[item]), "%0.2f"%(compute_price(stock_cur[item], datetime.now().strftime("%d/%m/%Y"), price[item]))))
 			id = id + 1
-			total_price = total_price + stock_cur[item]*price[item]
+			total_price = total_price + compute_price(stock_cur[item], datetime.now().strftime("%d/%m/%Y"), price[item])
 	cur_stock.append((id, 'TOTAL', 'NA', 'NA', "%0.2f"%(total_price)))
 	return cur_stock
 
@@ -943,7 +1005,9 @@ def write_to_excel_file():
 	units = {}
 	item_code = {}
 	for d in inv_dict:
-		price[d['item_name']] = float(d['price'])*(1+float(d['tax'])/100)
+		if not d['item_name'] in price:
+			price[d['item_name']] = []
+		price[d['item_name']].append([float(d['price'])*(1+float(d['tax'])/100), d['date']])
 		units[d['item_name']] = d['units']
 		item_code[d['item_name']] = d['item_code']
 	# Read stock table and get initial stock with dates
@@ -952,7 +1016,7 @@ def write_to_excel_file():
 	tot_items = len(stock_dict)
 	tot_price = 0
 	for d in range(tot_items):
-		stock_dict[d]['price'] = conv_quantity(units[stock_dict[d]['item_name']], stock_dict[d]['quantity'])*price[stock_dict[d]['item_name']]
+		stock_dict[d]['price'] = compute_price(conv_quantity(units[stock_dict[d]['item_name']], stock_dict[d]['quantity']), stock_dict[d]['date'], price[stock_dict[d]['item_name']])
 		stock_dict[d]['item_code'] = item_code[stock_dict[d]['item_name']]
 		tot_price = tot_price + stock_dict[d]['price']
 	stock_dict = sort_dict_arr(stock_dict)
@@ -963,7 +1027,7 @@ def write_to_excel_file():
 	tot_items = len(pur_dict)
 	tot_price = 0
 	for d in range(tot_items):
-		pur_dict[d]['price'] = conv_quantity(units[pur_dict[d]['item_name']], pur_dict[d]['quantity'])*price[pur_dict[d]['item_name']]
+		pur_dict[d]['price'] = compute_price(conv_quantity(units[pur_dict[d]['item_name']], pur_dict[d]['quantity']), pur_dict[d]['date'], price[pur_dict[d]['item_name']])
 		pur_dict[d]['item_code'] = item_code[pur_dict[d]['item_name']]
 		tot_price = tot_price + pur_dict[d]['price']
 	pur_dict = sort_dict_arr(pur_dict)
@@ -974,7 +1038,7 @@ def write_to_excel_file():
 	tot_items = len(sale_dict)
 	tot_price = 0
 	for d in range(tot_items):
-		sale_dict[d]['price'] = conv_quantity(units[sale_dict[d]['item_name']], sale_dict[d]['quantity'])*price[sale_dict[d]['item_name']]
+		sale_dict[d]['price'] = compute_price(conv_quantity(units[sale_dict[d]['item_name']], sale_dict[d]['quantity']), sale_dict[d]['date'], price[sale_dict[d]['item_name']])
 		sale_dict[d]['item_code'] = item_code[sale_dict[d]['item_name']]
 		tot_price = tot_price + sale_dict[d]['price']
 	sale_dict = sort_dict_arr(sale_dict)
@@ -985,7 +1049,7 @@ def write_to_excel_file():
 	tot_items = len(ret_dict)
 	tot_price = 0
 	for d in range(tot_items):
-		ret_dict[d]['price'] = conv_quantity(units[ret_dict[d]['item_name']], ret_dict[d]['quantity'])*price[ret_dict[d]['item_name']]
+		ret_dict[d]['price'] = compute_price(conv_quantity(units[ret_dict[d]['item_name']], ret_dict[d]['quantity']), ret_dict[d]['date'], price[ret_dict[d]['item_name']])
 		ret_dict[d]['item_code'] = item_code[ret_dict[d]['item_name']]
 		tot_price = tot_price + ret_dict[d]['price']
 	ret_dict = sort_dict_arr(ret_dict)
@@ -1068,7 +1132,7 @@ restore_err_msg = ""
 
 conn =sqlite3.connect("sm.db")
 cursor = conn.cursor()
-cursor.execute(""" CREATE TABLE IF NOT EXISTS inventory(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, item_code text NOT NULL, units text NOT NULL, price text NOT NULL, tax text NOT NULL) """);
+cursor.execute(""" CREATE TABLE IF NOT EXISTS inventory(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, date text NOT NULL, item_code text NOT NULL, units text NOT NULL, price text NOT NULL, tax text NOT NULL) """);
 cursor.execute(""" CREATE TABLE IF NOT EXISTS purchase(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL, company text NOT NULL) """);
 cursor.execute(""" CREATE TABLE IF NOT EXISTS sale(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL, to_p text NOT NULL, frm text NOT NULL, invoice text NOT NULL, vehicle text NOT NULL, remarks text NOT NULL) """);
 cursor.execute(""" CREATE TABLE IF NOT EXISTS return(id integer PRIMARY KEY AUTOINCREMENT, item_name text NOT NULL, quantity text NOT NULL, date text NOT NULL, to_p text NOT NULL, frm text NOT NULL) """);
