@@ -902,7 +902,7 @@ def sort_dict_arr(c_dict_arr):
 	sorted_dict_arr = []
 	for item in items:
 		cur_arr = [c_dict_arr[i] for i in range(len(c_dict_arr)) if c_dict_arr[i]['item_name']==item]
-		cur_arr = sorted(cur_arr, key=lambda d : d['date'])
+		cur_arr = sorted(cur_arr, key=lambda d : format_date(d['date']))
 		sorted_dict_arr = sorted_dict_arr + cur_arr
 	return sorted_dict_arr
 
